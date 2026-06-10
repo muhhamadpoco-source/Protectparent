@@ -1,0 +1,6 @@
+{
+  "name": "ProtectParent",
+  "description": "A parental control app with GPS tracking, camera access, notifications review, screen time tracking, and app blocking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

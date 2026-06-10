@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">ProtectParent</string>
+    <string name="accessibility_service_label">ProtectParent App Blocker</string>
+    <string name="accessibility_service_description">This service is required to block restricted apps.</string>
+</resources>
