@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import android.content.Intent
+import android.net.Uri
 import android.provider.Settings
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
@@ -119,6 +120,32 @@ fun ChildSetupScreen() {
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
             ) {
                 Text("Enable Location Services")
+            }
+
+            // Microphone Access Button
+            Button(
+                onClick = { 
+                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.fromParts("package", context.packageName, null)
+                    }
+                    context.startActivity(intent)
+                },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+            ) {
+                Text("Grant Microphone Access (App Info -> Permissions)")
+            }
+
+            // Contacts Access Button
+            Button(
+                onClick = { 
+                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.fromParts("package", context.packageName, null)
+                    }
+                    context.startActivity(intent)
+                },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+            ) {
+                Text("Grant Contacts Access (App Info -> Permissions)")
             }
 
             Spacer(modifier = Modifier.height(32.dp))

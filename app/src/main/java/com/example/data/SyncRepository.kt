@@ -34,6 +34,24 @@ object SyncRepository {
     private val _cameraImageBase64 = MutableStateFlow<String?>(null)
     val cameraImageBase64: StateFlow<String?> = _cameraImageBase64.asStateFlow()
 
+    private val _audioRequest = MutableStateFlow(false)
+    val audioRequest: StateFlow<Boolean> = _audioRequest.asStateFlow()
+
+    private val _audioFileBase64 = MutableStateFlow<String?>(null)
+    val audioFileBase64: StateFlow<String?> = _audioFileBase64.asStateFlow()
+
+    private val _screenRequest = MutableStateFlow(false)
+    val screenRequest: StateFlow<Boolean> = _screenRequest.asStateFlow()
+
+    private val _screenImageBase64 = MutableStateFlow<String?>(null)
+    val screenImageBase64: StateFlow<String?> = _screenImageBase64.asStateFlow()
+
+    private val _wifiInfo = MutableStateFlow<String>("Unknown Setup")
+    val wifiInfo: StateFlow<String> = _wifiInfo.asStateFlow()
+
+    private val _contacts = MutableStateFlow<List<ContactItem>>(emptyList())
+    val contacts: StateFlow<List<ContactItem>> = _contacts.asStateFlow()
+
     fun setPaired(isPaired: Boolean) {
         _paired.value = isPaired
     }
@@ -70,6 +88,32 @@ object SyncRepository {
         _cameraImageBase64.value = base64Image
         _cameraRequest.value = false
     }
+
+    fun requestAudioClip() {
+        _audioRequest.value = true
+    }
+
+    fun completeAudioClip(base64Audio: String) {
+        _audioFileBase64.value = base64Audio
+        _audioRequest.value = false
+    }
+
+    fun requestScreenSnapshot() {
+        _screenRequest.value = true
+    }
+
+    fun completeScreenSnapshot(base64Image: String) {
+        _screenImageBase64.value = base64Image
+        _screenRequest.value = false
+    }
+
+    fun updateWifiInfo(info: String) {
+        _wifiInfo.value = info
+    }
+
+    fun updateContacts(list: List<ContactItem>) {
+        _contacts.value = list
+    }
 }
 
 data class NotificationItem(
@@ -78,4 +122,9 @@ data class NotificationItem(
     val title: String,
     val text: String,
     val timestamp: Long
+)
+
+data class ContactItem(
+    val name: String,
+    val phoneNumber: String
 )
