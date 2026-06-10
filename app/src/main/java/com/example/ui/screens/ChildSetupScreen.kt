@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.utils.QRCodeHelper
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -25,10 +26,12 @@ import com.example.utils.QRCodeHelper
 fun ChildSetupScreen() {
     val context = LocalContext.current
     var qrCodeBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var pairingCode by remember { mutableStateOf("") }
     
     LaunchedEffect(Unit) {
-        // Generate a random ID for pairing
-        qrCodeBitmap = QRCodeHelper.generateQRCode("protectparent://pair?id=some_random_uuid")
+        val randomCode = (100000000L..9999999999L).random().toString().padStart(10, '0')
+        pairingCode = randomCode
+        qrCodeBitmap = QRCodeHelper.generateQRCode("protectparent://pair?id=$randomCode")
     }
 
     Scaffold(
@@ -51,13 +54,13 @@ fun ChildSetupScreen() {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                "Step 1: Scan this QR Code",
+                "Step 1: Scan QR or Enter Code",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                "Use the Parent's phone to scan this code and link the devices.",
+                "Use the Parent's phone to scan this code or enter the 10-digit code below to link the devices.",
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -69,6 +72,15 @@ fun ChildSetupScreen() {
                     bitmap = qrCodeBitmap!!.asImageBitmap(),
                     contentDescription = "Pairing QR Code",
                     modifier = Modifier.size(200.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("OR ENTER CODE:", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = pairingCode,
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 4.sp
                 )
             } else {
                 CircularProgressIndicator(modifier = Modifier.padding(64.dp))
