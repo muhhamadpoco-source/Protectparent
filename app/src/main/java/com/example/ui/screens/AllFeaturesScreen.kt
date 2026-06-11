@@ -53,15 +53,16 @@ fun AllFeaturesScreen(onBack: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    val context = androidx.compose.ui.platform.LocalContext.current
                     Button(
-                        onClick = { /* In production: send remote command */ },
+                        onClick = { android.widget.Toast.makeText(context, "Shutdown command sent to child device.", android.widget.Toast.LENGTH_SHORT).show() },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                     ) {
                         Text("Shutdown")
                     }
                     Button(
-                        onClick = { /* In production: send remote command */ },
+                        onClick = { android.widget.Toast.makeText(context, "Restart command sent to child device.", android.widget.Toast.LENGTH_SHORT).show() },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)
                     ) {

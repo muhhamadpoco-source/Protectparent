@@ -20,6 +20,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.utils.QRCodeHelper
+import com.example.data.SyncRepository
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,15 +46,83 @@ fun ChildSetupScreen() {
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
+        val paired by SyncRepository.paired.collectAsState()
+
+        if (paired) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = "Protected",
+                    modifier = Modifier.size(120.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+                Text(
+                    "Device is Protected",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "This device is paired with the parent device. Activity is being monitored.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            // Simulate responding to requests locally
+            val cameraRequest = SyncRepository.cameraRequest.collectAsState()
+            val audioRequest = SyncRepository.audioRequest.collectAsState()
+            val screenRequest = SyncRepository.screenRequest.collectAsState()
+
+            LaunchedEffect(cameraRequest.value) {
+                if (cameraRequest.value) {
+                    kotlinx.coroutines.delay(2000)
+                    // Generate a simple 1x1 black image in base64 to simulate
+                    SyncRepository.completeCameraSnapshot("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=")
+                }
+            }
+
+            LaunchedEffect(audioRequest.value) {
+                if (audioRequest.value) {
+                    kotlinx.coroutines.delay(2000)
+                    SyncRepository.completeAudioClip("dummy_audio_base64")
+                }
+            }
+
+            LaunchedEffect(screenRequest.value) {
+                if (screenRequest.value) {
+                    kotlinx.coroutines.delay(2000)
+                    SyncRepository.completeScreenSnapshot("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=") // White pixel
+                }
+            }
+
+            // Simulate GPS
+            LaunchedEffect(Unit) {
+                while(true) {
+                    kotlinx.coroutines.delay(5000)
+                    SyncRepository.updateLocation(37.4221 + Math.random() * 0.01, -122.0841 + Math.random() * 0.01)
+                }
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
                 "Step 1: Scan QR or Enter Code",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
@@ -82,6 +151,17 @@ fun ChildSetupScreen() {
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 4.sp
                 )
+                
+                Spacer(modifier = Modifier.height(32.dp))
+                
+                // For prototype testing: allow the child device to manually transition to the 
+                // protected state without a real backend server.
+                Button(
+                    onClick = { SyncRepository.setPaired(true) },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                ) {
+                    Text("Simulate Connection (Prototype Testing)")
+                }
             } else {
                 CircularProgressIndicator(modifier = Modifier.padding(64.dp))
             }
@@ -176,6 +256,7 @@ fun ChildSetupScreen() {
                     )
                 }
             }
+        }
         }
     }
 }
