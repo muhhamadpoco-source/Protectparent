@@ -66,6 +66,7 @@ object SyncRepository {
 
     // Retrieve Firebase DB URL from BuildConfig (injected via Secrets)
     private val baseUrl = com.example.BuildConfig.FIREBASE_DB_URL
+
     private var prefs: android.content.SharedPreferences? = null
 
     fun initialize(context: android.content.Context) {
@@ -117,9 +118,9 @@ object SyncRepository {
         return kotlinx.coroutines.withContext(Dispatchers.IO) {
             try {
                 val req = Request.Builder()
-                .url(getDbUrl(path))
-                .patch(json.toRequestBody("application/json".toMediaType()))
-                .build()
+                    .url(getDbUrl(path))
+                    .patch(json.toRequestBody("application/json".toMediaType()))
+                    .build()
                 client.newCall(req).execute().use { it.isSuccessful }
             } catch (e: Exception) { false }
         }
