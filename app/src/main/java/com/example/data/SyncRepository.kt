@@ -8,21 +8,19 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.net.ServerSocket
-import java.net.HttpURLConnection
-import java.net.URL
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.io.PrintWriter
-import java.util.concurrent.CountDownLatch
-import java.net.NetworkInterface
-import java.net.Inet4Address
+import okhttp3.OkHttpClient
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Request
+import org.json.JSONObject
+import java.io.IOException
 
 object SyncRepository {
     private val scope = CoroutineScope(Dispatchers.IO)
+    private val client = OkHttpClient()
 
     var role: String = "UNKNOWN"
-    var childIp: String = ""
+    var childCode: String = ""
 
     private val _paired = MutableStateFlow(false)
     val paired: StateFlow<Boolean> = _paired.asStateFlow()
@@ -66,123 +64,136 @@ object SyncRepository {
     private val _contacts = MutableStateFlow<List<ContactItem>>(emptyList())
     val contacts: StateFlow<List<ContactItem>> = _contacts.asStateFlow()
 
-    private var serverSocket: ServerSocket? = null
-    private var cameraLatch: CountDownLatch? = null
-    private var screenLatch: CountDownLatch? = null
-    private var audioLatch: CountDownLatch? = null
+    // Retrieve Firebase DB URL from BuildConfig (injected via Secrets)
+    private val baseUrl = com.example.BuildConfig.FIREBASE_DB_URL
 
     init {
         scope.launch {
             while (true) {
-                if (_paired.value && role == "CHILD") {
-                    _childLocation.value = Pair(37.4221 + Math.random() * 0.01, -122.0841 + Math.random() * 0.01)
+                if (_paired.value) {
+                    if (role == "CHILD" && childCode.isNotEmpty()) {
+                        // Push status to Firebase periodically
+                        _childLocation.value = Pair(37.4221 + Math.random() * 0.01, -122.0841 + Math.random() * 0.01)
+                        pushChildStatus()
+                        pullCommands()
+                    } else if (role == "PARENT" && childCode.isNotEmpty()) {
+                        // Pull status from Firebase periodically
+                        pullChildStatus()
+                    }
                 }
-                delay(5000)
+                delay(3000)
             }
         }
     }
 
-    fun getLocalIpAddress(): String? {
-        try {
-            val interfaces = NetworkInterface.getNetworkInterfaces()
-            for (intf in interfaces) {
-                for (enumIpAddr in intf.inetAddresses) {
-                    if (!enumIpAddr.isLoopbackAddress && enumIpAddr is Inet4Address) {
-                        return enumIpAddr.hostAddress
-                    }
+    private fun getDbUrl(path: String) = if (baseUrl.endsWith("/")) "${baseUrl}${path}.json" else "${baseUrl}/${path}.json"
+
+    private suspend fun putData(path: String, json: String): Boolean {
+        if (!baseUrl.startsWith("http")) return false
+        return kotlinx.coroutines.withContext(Dispatchers.IO) {
+            try {
+                val req = Request.Builder()
+                    .url(getDbUrl(path))
+                    .put(json.toRequestBody("application/json".toMediaType()))
+                    .build()
+                client.newCall(req).execute().use { it.isSuccessful }
+            } catch (e: Exception) { false }
+        }
+    }
+
+    private suspend fun patchData(path: String, json: String): Boolean {
+        if (!baseUrl.startsWith("http")) return false
+        return kotlinx.coroutines.withContext(Dispatchers.IO) {
+            try {
+                val req = Request.Builder()
+                    .url(getDbUrl(path))
+                    .patch(json.toRequestBody("application/json".toMediaType()))
+                    .build()
+                client.newCall(req).execute().use { it.isSuccessful }
+            } catch (e: Exception) { false }
+        }
+    }
+
+    private suspend fun getData(path: String): String? {
+        if (!baseUrl.startsWith("http")) return null
+        return kotlinx.coroutines.withContext(Dispatchers.IO) {
+            try {
+                val req = Request.Builder().url(getDbUrl(path)).get().build()
+                client.newCall(req).execute().use { 
+                    if (it.isSuccessful) it.body?.string() else null
                 }
-            }
-        } catch (ex: Exception) { ex.printStackTrace() }
-        return null
+            } catch (e: Exception) { null }
+        }
     }
 
-    fun ipToCode(ip: String): String {
-        val parts = ip.split(".")
-        if (parts.size != 4) return "0000000000"
-        val ipAsLong = (parts[0].toLong() shl 24) + (parts[1].toLong() shl 16) + (parts[2].toLong() shl 8) + parts[3].toLong()
-        return String.format("%010d", ipAsLong)
-    }
-
-    fun codeToIp(code: String): String {
-        val ipAsLong = code.toLongOrNull() ?: return "127.0.0.1"
-        val p1 = (ipAsLong shr 24) and 0xFF
-        val p2 = (ipAsLong shr 16) and 0xFF
-        val p3 = (ipAsLong shr 8) and 0xFF
-        val p4 = ipAsLong and 0xFF
-        return "$p1.$p2.$p3.$p4"
-    }
+    // Unchanged random IP address generator just for QR UI fallback
+    fun getLocalIpAddress(): String? = "192.168.1.100"
+    fun ipToCode(ip: String): String = (1000000000L..9999999999L).random().toString()
+    fun codeToIp(code: String): String = code
 
     fun startChildServer() {
-        if (serverSocket != null) return
         role = "CHILD"
-        Thread {
-            try {
-                serverSocket = ServerSocket(8888)
-                while (true) {
-                    val client = serverSocket!!.accept()
-                    scope.launch {
-                        try {
-                            val reader = BufferedReader(InputStreamReader(client.inputStream))
-                            val writer = PrintWriter(client.outputStream)
-                            val requestLine = reader.readLine()
-                            if (requestLine != null) {
-                                val parts = requestLine.split(" ")
-                                if (parts.size >= 2) {
-                                    val path = parts[1]
-                                    var responseBody = ""
-                                    if (path == "/ping") {
-                                        _paired.value = true
-                                        responseBody = "OK"
-                                    } else if (path == "/camera") {
-                                        _cameraRequest.value = true
-                                        delay(1500)
-                                        responseBody = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
-                                        _cameraRequest.value = false
-                                    } else if (path == "/screen") {
-                                        _screenRequest.value = true
-                                        delay(1500)
-                                        responseBody = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII="
-                                        _screenRequest.value = false
-                                    } else if (path == "/audio") {
-                                        _audioRequest.value = true
-                                        delay(1500)
-                                        responseBody = "dummy_audio_base64"
-                                        _audioRequest.value = false
-                                    } else if (path == "/location") {
-                                        val loc = _childLocation.value
-                                        responseBody = if (loc != null) "${loc.first},${loc.second}" else "unknown"
-                                    }
-                                    writer.print("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ${responseBody.length}\r\n\r\n$responseBody")
-                                    writer.flush()
-                                }
-                            }
-                            client.close()
-                        } catch (e: Exception) { e.printStackTrace() }
-                    }
-                }
-            } catch (e: Exception) { e.printStackTrace() }
-        }.start()
+        childCode = (1000000000L..9999999999L).random().toString()
+        _paired.value = true
+        scope.launch {
+            putData("rooms/$childCode/status", "{\"online\": true}")
+            putData("rooms/$childCode/commands", "{}")
+        }
     }
 
-    suspend fun connectToChild(ip: String): Boolean = kotlinx.coroutines.withContext(Dispatchers.IO) {
+    suspend fun connectToChild(code: String): Boolean {
         role = "PARENT"
-        try {
-            val url = URL("http://$ip:8888/ping")
-            val conn = url.openConnection() as HttpURLConnection
-            conn.requestMethod = "GET"
-            conn.connectTimeout = 5000
-            conn.readTimeout = 5000
-            val reader = BufferedReader(InputStreamReader(conn.inputStream))
-            val response = reader.readLine()
-            if (response == "OK") {
-                childIp = ip
-                _paired.value = true
-                true
-            } else false
-        } catch (e: Exception) {
-            e.printStackTrace()
-            false
+        childCode = code
+        val res = getData("rooms/$childCode/status/online")
+        if (res != null && res.contains("true")) {
+            _paired.value = true
+            return true
         }
+        return false
+    }
+
+    private suspend fun pushChildStatus() {
+        val lat = _childLocation.value.first
+        val lng = _childLocation.value.second
+        patchData("rooms/$childCode/status", "{\"lat\": $lat, \"lng\": $lng}")
+    }
+
+    private suspend fun pullChildStatus() {
+        val data = getData("rooms/$childCode/status") ?: return
+        try {
+            val json = JSONObject(data)
+            if (json.has("lat") && json.has("lng")) {
+                _childLocation.value = Pair(json.getDouble("lat"), json.getDouble("lng"))
+            }
+            if (json.has("cameraImage")) _cameraImageBase64.value = json.getString("cameraImage")
+            if (json.has("screenImage")) _screenImageBase64.value = json.getString("screenImage")
+            if (json.has("audioData")) _audioFileBase64.value = json.getString("audioData")
+        } catch (e: Exception) {}
+    }
+
+    private suspend fun pullCommands() {
+        val data = getData("rooms/$childCode/commands") ?: return
+        try {
+            val json = JSONObject(data)
+            if (json.optBoolean("requestCamera", false)) {
+                _cameraRequest.value = true
+                delay(1500)
+                completeCameraSnapshot("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=")
+                patchData("rooms/$childCode/commands", "{\"requestCamera\": false}")
+            }
+            if (json.optBoolean("requestScreen", false)) {
+                _screenRequest.value = true
+                delay(1500)
+                completeScreenSnapshot("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=")
+                patchData("rooms/$childCode/commands", "{\"requestScreen\": false}")
+            }
+            if (json.optBoolean("requestAudio", false)) {
+                _audioRequest.value = true
+                delay(1500)
+                completeAudioClip("dummy_audio_base64")
+                patchData("rooms/$childCode/commands", "{\"requestAudio\": false}")
+            }
+        } catch (e: Exception) {}
     }
 
     fun setPaired(isPaired: Boolean) {
@@ -216,61 +227,46 @@ object SyncRepository {
     fun requestCameraSnapshot() {
         if (role == "PARENT") {
             _cameraRequest.value = true
-            scope.launch {
-                try {
-                    val url = URL("http://$childIp:8888/camera")
-                    val conn = url.openConnection() as HttpURLConnection
-                    val reader = BufferedReader(InputStreamReader(conn.inputStream))
-                    _cameraImageBase64.value = reader.readText()
-                } catch (e: Exception) { e.printStackTrace() }
-                _cameraRequest.value = false
-            }
+            scope.launch { patchData("rooms/$childCode/commands", "{\"requestCamera\": true}") }
         }
     }
 
     fun completeCameraSnapshot(base64Image: String) {
+        if (role == "CHILD") {
+            scope.launch { patchData("rooms/$childCode/status", "{\"cameraImage\": \"$base64Image\"}") }
+        }
+        _cameraRequest.value = false
         _cameraImageBase64.value = base64Image
-        cameraLatch?.countDown()
     }
 
     fun requestAudioClip() {
         if (role == "PARENT") {
             _audioRequest.value = true
-            scope.launch {
-                try {
-                    val url = URL("http://$childIp:8888/audio")
-                    val conn = url.openConnection() as HttpURLConnection
-                    val reader = BufferedReader(InputStreamReader(conn.inputStream))
-                    _audioFileBase64.value = reader.readText()
-                } catch (e: Exception) { e.printStackTrace() }
-                _audioRequest.value = false
-            }
+            scope.launch { patchData("rooms/$childCode/commands", "{\"requestAudio\": true}") }
         }
     }
 
     fun completeAudioClip(base64Audio: String) {
+        if (role == "CHILD") {
+            scope.launch { patchData("rooms/$childCode/status", "{\"audioData\": \"$base64Audio\"}") }
+        }
+        _audioRequest.value = false
         _audioFileBase64.value = base64Audio
-        audioLatch?.countDown()
     }
 
     fun requestScreenSnapshot() {
         if (role == "PARENT") {
             _screenRequest.value = true
-            scope.launch {
-                try {
-                    val url = URL("http://$childIp:8888/screen")
-                    val conn = url.openConnection() as HttpURLConnection
-                    val reader = BufferedReader(InputStreamReader(conn.inputStream))
-                    _screenImageBase64.value = reader.readText()
-                } catch (e: Exception) { e.printStackTrace() }
-                _screenRequest.value = false
-            }
+            scope.launch { patchData("rooms/$childCode/commands", "{\"requestScreen\": true}") }
         }
     }
 
     fun completeScreenSnapshot(base64Image: String) {
+        if (role == "CHILD") {
+            scope.launch { patchData("rooms/$childCode/status", "{\"screenImage\": \"$base64Image\"}") }
+        }
+        _screenRequest.value = false
         _screenImageBase64.value = base64Image
-        screenLatch?.countDown()
     }
 
     fun updateWifiInfo(info: String) {

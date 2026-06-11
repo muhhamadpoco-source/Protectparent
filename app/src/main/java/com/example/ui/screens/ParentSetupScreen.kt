@@ -1,10 +1,15 @@
 package com.example.ui.screens
 
+import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.*
@@ -31,39 +36,53 @@ fun ParentSetupScreen(
     val context = LocalContext.current
     var manualCode by remember { mutableStateOf("") }
     
+    val sharedPreferences = context.getSharedPreferences("protect_parent_prefs", Context.MODE_PRIVATE)
+    var savedDevices by remember {
+        mutableStateOf(sharedPreferences.getStringSet("saved_child_devices", emptySet())?.toList() ?: emptyList())
+    }
+    
+    fun saveDevice(code: String) {
+        val newSet = savedDevices.toMutableSet()
+        newSet.add(code)
+        sharedPreferences.edit().putStringSet("saved_child_devices", newSet).apply()
+        savedDevices = newSet.toList()
+    }
+    
     val coroutineScope = rememberCoroutineScope()
     
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         if (result.contents != null) {
-            val ip = result.contents
-            Toast.makeText(context, "Pairing with IP: $ip...", Toast.LENGTH_SHORT).show()
+            val code = result.contents
+            Toast.makeText(context, "Pairing with code: $code...", Toast.LENGTH_SHORT).show()
             coroutineScope.launch {
-                val success = SyncRepository.connectToChild(ip)
+                val success = SyncRepository.connectToChild(code)
                 if (success) {
+                    saveDevice(code)
                     Toast.makeText(context, "Paired successfully via QR Code!", Toast.LENGTH_SHORT).show()
                     onPaired()
                 } else {
-                    Toast.makeText(context, "Failed to connect to child device. Ensure both are on the same WiFi map.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Failed to connect via Cloud. Add FIREBASE_DB_URL in Secrets if not done yet.", Toast.LENGTH_LONG).show()
                 }
             }
         }
     }
 
     fun pairWithCode() {
-        if (manualCode.length == 10) {
-            val ip = SyncRepository.codeToIp(manualCode)
-            Toast.makeText(context, "Attempting to connect to IP $ip...", Toast.LENGTH_SHORT).show()
+        if (manualCode.length >= 8) {
+            val code = manualCode
+            Toast.makeText(context, "Attempting to connect to code $code...", Toast.LENGTH_SHORT).show()
             coroutineScope.launch {
-                val success = SyncRepository.connectToChild(ip)
+                val success = SyncRepository.connectToChild(code)
                 if (success) {
+                    saveDevice(code)
                     Toast.makeText(context, "Paired successfully with code!", Toast.LENGTH_SHORT).show()
                     onPaired()
                 } else {
-                    Toast.makeText(context, "Failed to connect to child device.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Failed to connect to child device. Ensure FIREBASE_DB_URL is configured.", Toast.LENGTH_LONG).show()
                 }
             }
         } else {
-            Toast.makeText(context, "Please enter a valid 10-digit code", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Please enter a valid code", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -82,9 +101,10 @@ fun ParentSetupScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(24.dp),
+                .padding(24.dp)
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            // verticalArrangement = Arrangement.Center - removed because of scroll
         ) {
             Icon(
                 imageVector = Icons.Default.QrCodeScanner,
@@ -125,7 +145,7 @@ fun ParentSetupScreen(
             Button(
                 onClick = { pairWithCode() },
                 modifier = Modifier.fillMaxWidth().height(50.dp),
-                enabled = manualCode.length == 10
+                enabled = manualCode.length >= 8
             ) {
                 Icon(Icons.Default.VpnKey, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
@@ -161,6 +181,51 @@ fun ParentSetupScreen(
 
             TextButton(onClick = onSkip) {
                 Text("Skip for now")
+            }
+
+            if (savedDevices.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(32.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    "Saved Child Devices",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                savedDevices.forEach { code ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clickable {
+                                Toast.makeText(context, "Attempting to connect to $code...", Toast.LENGTH_SHORT).show()
+                                coroutineScope.launch {
+                                    val success = SyncRepository.connectToChild(code)
+                                    if (success) {
+                                        Toast.makeText(context, "Connected!", Toast.LENGTH_SHORT).show()
+                                        onPaired()
+                                    } else {
+                                        Toast.makeText(context, "Failed to connect via Cloud. Is FIREBASE_DB_URL set?", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            },
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Devices, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column {
+                                Text("Child Device", fontWeight = FontWeight.Bold)
+                                Text("Code: $code", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
             }
         }
     }

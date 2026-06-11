@@ -31,11 +31,10 @@ fun ChildSetupScreen() {
     
     LaunchedEffect(Unit) {
         SyncRepository.startChildServer()
-        // Allow a brief moment for the network interface to be queried if needed.
+        // Allow a brief moment for Cloud properties to be generated.
         kotlinx.coroutines.delay(500)
-        val ipAddress = SyncRepository.getLocalIpAddress() ?: "127.0.0.1"
-        pairingCode = SyncRepository.ipToCode(ipAddress)
-        qrCodeBitmap = QRCodeHelper.generateQRCode(ipAddress)
+        pairingCode = SyncRepository.childCode
+        qrCodeBitmap = QRCodeHelper.generateQRCode(pairingCode)
     }
 
     Scaffold(
