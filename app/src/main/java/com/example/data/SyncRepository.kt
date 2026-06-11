@@ -14,17 +14,10 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.IOException
-import com.google.firebase.FirebaseApp
-import com.google.firebase.FirebaseOptions
-import com.google.firebase.database.FirebaseDatabase
-import com.google.firebase.database.DataSnapshot
-import com.google.firebase.database.DatabaseError
-import com.google.firebase.database.ValueEventListener
-import kotlinx.coroutines.tasks.await
 
 object SyncRepository {
     private val scope = CoroutineScope(Dispatchers.IO)
-    private var database: FirebaseDatabase? = null
+    private val client = OkHttpClient()
 
     var role: String = "UNKNOWN"
     var childCode: String = ""
@@ -76,21 +69,6 @@ object SyncRepository {
     private var prefs: android.content.SharedPreferences? = null
 
     fun initialize(context: android.content.Context) {
-        try {
-            if (FirebaseApp.getApps(context).isEmpty()) {
-                val options = FirebaseOptions.Builder()
-                    .setDatabaseUrl(baseUrl)
-                    .setApplicationId(com.example.BuildConfig.FIREBASE_APP_ID.takeIf { it.isNotEmpty() } ?: "1:1234567890:android:abcdef")
-                    .setApiKey(com.example.BuildConfig.FIREBASE_API_KEY.takeIf { it.isNotEmpty() } ?: "dummy_api_key_for_test_mode")
-                    .setProjectId("protectparent-dummy")
-                    .build()
-                FirebaseApp.initializeApp(context, options, "ProtectParentApp")
-            }
-            database = FirebaseDatabase.getInstance(FirebaseApp.getInstance("ProtectParentApp"))
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
         prefs = context.getSharedPreferences("sync_prefs", android.content.Context.MODE_PRIVATE)
         val savedRole = prefs?.getString("role", null)
         if (savedRole != null) {
@@ -119,37 +97,44 @@ object SyncRepository {
         }
     }
 
-    private fun jsonToMap(jsonStr: String): Map<String, Any> {
-        val map = mutableMapOf<String, Any>()
-        try {
-            val json = JSONObject(jsonStr)
-            for (key in json.keys()) {
-                map[key] = json.get(key)
-            }
-        } catch (e: Exception) {}
-        return map
-    }
+    private fun getDbUrl(path: String) = if (baseUrl.endsWith("/")) "${baseUrl}${path}.json" else "${baseUrl}/${path}.json"
 
     private suspend fun putData(path: String, json: String): Boolean {
-        return try {
-            database?.getReference(path)?.setValue(jsonToMap(json))?.await()
-            true
-        } catch (e: Exception) { false }
+        if (!baseUrl.startsWith("http")) return false
+        return kotlinx.coroutines.withContext(Dispatchers.IO) {
+            try {
+                val req = Request.Builder()
+                    .url(getDbUrl(path))
+                    .put(json.toRequestBody("application/json".toMediaType()))
+                    .build()
+                client.newCall(req).execute().use { it.isSuccessful }
+            } catch (e: Exception) { false }
+        }
     }
 
     private suspend fun patchData(path: String, json: String): Boolean {
-        return try {
-            database?.getReference(path)?.updateChildren(jsonToMap(json))?.await()
-            true
-        } catch (e: Exception) { false }
+        if (!baseUrl.startsWith("http")) return false
+        return kotlinx.coroutines.withContext(Dispatchers.IO) {
+            try {
+                val req = Request.Builder()
+                .url(getDbUrl(path))
+                .patch(json.toRequestBody("application/json".toMediaType()))
+                .build()
+                client.newCall(req).execute().use { it.isSuccessful }
+            } catch (e: Exception) { false }
+        }
     }
 
     private suspend fun getData(path: String): String? {
-        return try {
-            val snapshot = database?.getReference(path)?.get()?.await()
-            val value = snapshot?.value
-            if (value is Map<*, *>) JSONObject(value).toString() else value?.toString()
-        } catch (e: Exception) { null }
+        if (!baseUrl.startsWith("http")) return null
+        return kotlinx.coroutines.withContext(Dispatchers.IO) {
+            try {
+                val req = Request.Builder().url(getDbUrl(path)).get().build()
+                client.newCall(req).execute().use { 
+                    if (it.isSuccessful) it.body?.string() else null
+                }
+            } catch (e: Exception) { null }
+        }
     }
 
     // Unchanged random IP address generator just for QR UI fallback
