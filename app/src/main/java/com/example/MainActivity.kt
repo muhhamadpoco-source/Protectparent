@@ -11,17 +11,28 @@ import androidx.compose.ui.Modifier
 import com.example.ui.navigation.AppNavigation
 import com.example.ui.theme.MyApplicationTheme
 
+import com.example.data.SyncRepository
+import com.example.ui.navigation.Routes
+
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
+    
+    SyncRepository.initialize(this)
+    val startDest = when (SyncRepository.role) {
+        "PARENT" -> Routes.PARENT_DASHBOARD
+        "CHILD" -> Routes.CHILD_SETUP
+        else -> Routes.ROLE_SELECTION
+    }
+
     setContent {
       MyApplicationTheme {
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background
         ) {
-            AppNavigation()
+            AppNavigation(startDestination = startDest)
         }
       }
     }

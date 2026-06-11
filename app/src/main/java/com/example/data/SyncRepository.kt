@@ -14,10 +14,17 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.IOException
+import com.google.firebase.FirebaseApp
+import com.google.firebase.FirebaseOptions
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.ValueEventListener
+import kotlinx.coroutines.tasks.await
 
 object SyncRepository {
     private val scope = CoroutineScope(Dispatchers.IO)
-    private val client = OkHttpClient()
+    private var database: FirebaseDatabase? = null
 
     var role: String = "UNKNOWN"
     var childCode: String = ""
@@ -66,64 +73,83 @@ object SyncRepository {
 
     // Retrieve Firebase DB URL from BuildConfig (injected via Secrets)
     private val baseUrl = com.example.BuildConfig.FIREBASE_DB_URL
+    private var prefs: android.content.SharedPreferences? = null
 
-    init {
+    fun initialize(context: android.content.Context) {
+        try {
+            if (FirebaseApp.getApps(context).isEmpty()) {
+                val options = FirebaseOptions.Builder()
+                    .setDatabaseUrl(baseUrl)
+                    .setApplicationId(com.example.BuildConfig.FIREBASE_APP_ID.takeIf { it.isNotEmpty() } ?: "1:1234567890:android:abcdef")
+                    .setApiKey(com.example.BuildConfig.FIREBASE_API_KEY.takeIf { it.isNotEmpty() } ?: "dummy_api_key_for_test_mode")
+                    .setProjectId("protectparent-dummy")
+                    .build()
+                FirebaseApp.initializeApp(context, options, "ProtectParentApp")
+            }
+            database = FirebaseDatabase.getInstance(FirebaseApp.getInstance("ProtectParentApp"))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        prefs = context.getSharedPreferences("sync_prefs", android.content.Context.MODE_PRIVATE)
+        val savedRole = prefs?.getString("role", null)
+        if (savedRole != null) {
+            role = savedRole
+            if (role == "CHILD") {
+                childCode = prefs?.getString("childCode", "") ?: ""
+                _paired.value = prefs?.getBoolean("paired", false) ?: false
+            }
+        }
+        
         scope.launch {
             while (true) {
-                if (_paired.value) {
-                    if (role == "CHILD" && childCode.isNotEmpty()) {
+                if (role == "CHILD" && childCode.isNotEmpty()) {
+                    pullCommands()
+                    if (_paired.value) {
                         // Push status to Firebase periodically
                         _childLocation.value = Pair(37.4221 + Math.random() * 0.01, -122.0841 + Math.random() * 0.01)
                         pushChildStatus()
-                        pullCommands()
-                    } else if (role == "PARENT" && childCode.isNotEmpty()) {
-                        // Pull status from Firebase periodically
-                        pullChildStatus()
                     }
+                } else if (_paired.value && role == "PARENT" && childCode.isNotEmpty()) {
+                    // Pull status from Firebase periodically
+                    pullChildStatus()
                 }
                 delay(3000)
             }
         }
     }
 
-    private fun getDbUrl(path: String) = if (baseUrl.endsWith("/")) "${baseUrl}${path}.json" else "${baseUrl}/${path}.json"
+    private fun jsonToMap(jsonStr: String): Map<String, Any> {
+        val map = mutableMapOf<String, Any>()
+        try {
+            val json = JSONObject(jsonStr)
+            for (key in json.keys()) {
+                map[key] = json.get(key)
+            }
+        } catch (e: Exception) {}
+        return map
+    }
 
     private suspend fun putData(path: String, json: String): Boolean {
-        if (!baseUrl.startsWith("http")) return false
-        return kotlinx.coroutines.withContext(Dispatchers.IO) {
-            try {
-                val req = Request.Builder()
-                    .url(getDbUrl(path))
-                    .put(json.toRequestBody("application/json".toMediaType()))
-                    .build()
-                client.newCall(req).execute().use { it.isSuccessful }
-            } catch (e: Exception) { false }
-        }
+        return try {
+            database?.getReference(path)?.setValue(jsonToMap(json))?.await()
+            true
+        } catch (e: Exception) { false }
     }
 
     private suspend fun patchData(path: String, json: String): Boolean {
-        if (!baseUrl.startsWith("http")) return false
-        return kotlinx.coroutines.withContext(Dispatchers.IO) {
-            try {
-                val req = Request.Builder()
-                    .url(getDbUrl(path))
-                    .patch(json.toRequestBody("application/json".toMediaType()))
-                    .build()
-                client.newCall(req).execute().use { it.isSuccessful }
-            } catch (e: Exception) { false }
-        }
+        return try {
+            database?.getReference(path)?.updateChildren(jsonToMap(json))?.await()
+            true
+        } catch (e: Exception) { false }
     }
 
     private suspend fun getData(path: String): String? {
-        if (!baseUrl.startsWith("http")) return null
-        return kotlinx.coroutines.withContext(Dispatchers.IO) {
-            try {
-                val req = Request.Builder().url(getDbUrl(path)).get().build()
-                client.newCall(req).execute().use { 
-                    if (it.isSuccessful) it.body?.string() else null
-                }
-            } catch (e: Exception) { null }
-        }
+        return try {
+            val snapshot = database?.getReference(path)?.get()?.await()
+            val value = snapshot?.value
+            if (value is Map<*, *>) JSONObject(value).toString() else value?.toString()
+        } catch (e: Exception) { null }
     }
 
     // Unchanged random IP address generator just for QR UI fallback
@@ -134,7 +160,8 @@ object SyncRepository {
     fun startChildServer() {
         role = "CHILD"
         childCode = (1000000000L..9999999999L).random().toString()
-        _paired.value = true
+        _paired.value = false
+        prefs?.edit()?.putString("role", "CHILD")?.putString("childCode", childCode)?.putBoolean("paired", false)?.apply()
         scope.launch {
             putData("rooms/$childCode/status", "{\"online\": true}")
             putData("rooms/$childCode/commands", "{}")
@@ -143,10 +170,12 @@ object SyncRepository {
 
     suspend fun connectToChild(code: String): Boolean {
         role = "PARENT"
+        prefs?.edit()?.putString("role", "PARENT")?.apply()
         childCode = code
         val res = getData("rooms/$childCode/status/online")
         if (res != null && res.contains("true")) {
             _paired.value = true
+            patchData("rooms/$childCode/commands", "{\"isPaired\": true}")
             return true
         }
         return false
@@ -175,6 +204,10 @@ object SyncRepository {
         val data = getData("rooms/$childCode/commands") ?: return
         try {
             val json = JSONObject(data)
+            if (json.optBoolean("isPaired", false) && !_paired.value) {
+                _paired.value = true
+                prefs?.edit()?.putBoolean("paired", true)?.apply()
+            }
             if (json.optBoolean("requestCamera", false)) {
                 _cameraRequest.value = true
                 delay(1500)
@@ -198,6 +231,7 @@ object SyncRepository {
 
     fun setPaired(isPaired: Boolean) {
         _paired.value = isPaired
+        prefs?.edit()?.putBoolean("paired", isPaired)?.apply()
     }
 
     fun updateLocation(lat: Double, lng: Double) {

@@ -29,6 +29,8 @@ fun ChildSetupScreen() {
     var qrCodeBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     var pairingCode by remember { mutableStateOf("") }
     
+    val paired by SyncRepository.paired.collectAsState()
+
     LaunchedEffect(Unit) {
         SyncRepository.startChildServer()
         // Allow a brief moment for Cloud properties to be generated.
@@ -37,18 +39,24 @@ fun ChildSetupScreen() {
         qrCodeBitmap = QRCodeHelper.generateQRCode(pairingCode)
     }
 
+    // Lock the back button if paired
+    androidx.activity.compose.BackHandler(enabled = paired) {
+        // Do nothing! Trap the user in the protected screen.
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Set Up Child Device", fontWeight = FontWeight.Bold) },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            if (!paired) {
+                TopAppBar(
+                    title = { Text("Set Up Child Device", fontWeight = FontWeight.Bold) },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
                 )
-            )
+            }
         }
     ) { padding ->
-        val paired by SyncRepository.paired.collectAsState()
 
         if (paired) {
             Column(

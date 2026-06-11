@@ -22,10 +22,10 @@ object Routes {
 }
 
 @Composable
-fun AppNavigation() {
+fun AppNavigation(startDestination: String = Routes.ROLE_SELECTION) {
     val navController = rememberNavController()
 
-    NavHost(navController = navController, startDestination = Routes.ROLE_SELECTION) {
+    NavHost(navController = navController, startDestination = startDestination) {
         composable(Routes.ROLE_SELECTION) {
             RoleSelectionScreen(
                 onSelectParent = { navController.navigate(Routes.PARENT_SETUP) },
@@ -57,8 +57,7 @@ fun AppNavigation() {
                 onNavigateToNotifications = { navController.navigate(Routes.NOTIFICATIONS_REVIEW) },
                 onNavigateToScreenTime = { navController.navigate(Routes.SCREEN_TIME_REVIEW) },
                 onNavigateToCameraControl = { navController.navigate(Routes.CAMERA_CONTROL) },
-                onNavigateToAllFeatures = { navController.navigate(Routes.ALL_FEATURES) },
-                onNavigateToChildSetup = { navController.navigate(Routes.CHILD_SETUP) }
+                onNavigateToAllFeatures = { navController.navigate(Routes.ALL_FEATURES) }
             )
         }
 
