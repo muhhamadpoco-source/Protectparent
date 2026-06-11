@@ -30,9 +30,12 @@ fun ChildSetupScreen() {
     var pairingCode by remember { mutableStateOf("") }
     
     LaunchedEffect(Unit) {
-        val randomCode = (100000000L..9999999999L).random().toString().padStart(10, '0')
-        pairingCode = randomCode
-        qrCodeBitmap = QRCodeHelper.generateQRCode("protectparent://pair?id=$randomCode")
+        SyncRepository.startChildServer()
+        // Allow a brief moment for the network interface to be queried if needed.
+        kotlinx.coroutines.delay(500)
+        val ipAddress = SyncRepository.getLocalIpAddress() ?: "127.0.0.1"
+        pairingCode = SyncRepository.ipToCode(ipAddress)
+        qrCodeBitmap = QRCodeHelper.generateQRCode(ipAddress)
     }
 
     Scaffold(
@@ -79,40 +82,7 @@ fun ChildSetupScreen() {
                 )
             }
 
-            // Simulate responding to requests locally
-            val cameraRequest = SyncRepository.cameraRequest.collectAsState()
-            val audioRequest = SyncRepository.audioRequest.collectAsState()
-            val screenRequest = SyncRepository.screenRequest.collectAsState()
-
-            LaunchedEffect(cameraRequest.value) {
-                if (cameraRequest.value) {
-                    kotlinx.coroutines.delay(2000)
-                    // Generate a simple 1x1 black image in base64 to simulate
-                    SyncRepository.completeCameraSnapshot("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=")
-                }
-            }
-
-            LaunchedEffect(audioRequest.value) {
-                if (audioRequest.value) {
-                    kotlinx.coroutines.delay(2000)
-                    SyncRepository.completeAudioClip("dummy_audio_base64")
-                }
-            }
-
-            LaunchedEffect(screenRequest.value) {
-                if (screenRequest.value) {
-                    kotlinx.coroutines.delay(2000)
-                    SyncRepository.completeScreenSnapshot("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=") // White pixel
-                }
-            }
-
-            // Simulate GPS
-            LaunchedEffect(Unit) {
-                while(true) {
-                    kotlinx.coroutines.delay(5000)
-                    SyncRepository.updateLocation(37.4221 + Math.random() * 0.01, -122.0841 + Math.random() * 0.01)
-                }
-            }
+            // The simulation for Camera, Audio, Screen, and Location is now running in the background via SyncRepository.
         } else {
             Column(
                 modifier = Modifier

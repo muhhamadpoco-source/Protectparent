@@ -1,15 +1,29 @@
 package com.example.data
 
+import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import java.net.ServerSocket
+import java.net.HttpURLConnection
+import java.net.URL
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.io.PrintWriter
+import java.util.concurrent.CountDownLatch
+import java.net.NetworkInterface
+import java.net.Inet4Address
 
 object SyncRepository {
-    // This is a facade for a real-time cloud database (like Firebase or Supabase).
-    // In a production environment spanning two different devices, this state would
-    // be synchronized via the cloud backend. Here, it acts locally to demonstrate
-    // the functional architecture.
-    
+    private val scope = CoroutineScope(Dispatchers.IO)
+
+    var role: String = "UNKNOWN"
+    var childIp: String = ""
+
     private val _paired = MutableStateFlow(false)
     val paired: StateFlow<Boolean> = _paired.asStateFlow()
 
@@ -52,6 +66,125 @@ object SyncRepository {
     private val _contacts = MutableStateFlow<List<ContactItem>>(emptyList())
     val contacts: StateFlow<List<ContactItem>> = _contacts.asStateFlow()
 
+    private var serverSocket: ServerSocket? = null
+    private var cameraLatch: CountDownLatch? = null
+    private var screenLatch: CountDownLatch? = null
+    private var audioLatch: CountDownLatch? = null
+
+    init {
+        scope.launch {
+            while (true) {
+                if (_paired.value && role == "CHILD") {
+                    _childLocation.value = Pair(37.4221 + Math.random() * 0.01, -122.0841 + Math.random() * 0.01)
+                }
+                delay(5000)
+            }
+        }
+    }
+
+    fun getLocalIpAddress(): String? {
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            for (intf in interfaces) {
+                for (enumIpAddr in intf.inetAddresses) {
+                    if (!enumIpAddr.isLoopbackAddress && enumIpAddr is Inet4Address) {
+                        return enumIpAddr.hostAddress
+                    }
+                }
+            }
+        } catch (ex: Exception) { ex.printStackTrace() }
+        return null
+    }
+
+    fun ipToCode(ip: String): String {
+        val parts = ip.split(".")
+        if (parts.size != 4) return "0000000000"
+        val ipAsLong = (parts[0].toLong() shl 24) + (parts[1].toLong() shl 16) + (parts[2].toLong() shl 8) + parts[3].toLong()
+        return String.format("%010d", ipAsLong)
+    }
+
+    fun codeToIp(code: String): String {
+        val ipAsLong = code.toLongOrNull() ?: return "127.0.0.1"
+        val p1 = (ipAsLong shr 24) and 0xFF
+        val p2 = (ipAsLong shr 16) and 0xFF
+        val p3 = (ipAsLong shr 8) and 0xFF
+        val p4 = ipAsLong and 0xFF
+        return "$p1.$p2.$p3.$p4"
+    }
+
+    fun startChildServer() {
+        if (serverSocket != null) return
+        role = "CHILD"
+        Thread {
+            try {
+                serverSocket = ServerSocket(8888)
+                while (true) {
+                    val client = serverSocket!!.accept()
+                    scope.launch {
+                        try {
+                            val reader = BufferedReader(InputStreamReader(client.inputStream))
+                            val writer = PrintWriter(client.outputStream)
+                            val requestLine = reader.readLine()
+                            if (requestLine != null) {
+                                val parts = requestLine.split(" ")
+                                if (parts.size >= 2) {
+                                    val path = parts[1]
+                                    var responseBody = ""
+                                    if (path == "/ping") {
+                                        _paired.value = true
+                                        responseBody = "OK"
+                                    } else if (path == "/camera") {
+                                        _cameraRequest.value = true
+                                        delay(1500)
+                                        responseBody = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+                                        _cameraRequest.value = false
+                                    } else if (path == "/screen") {
+                                        _screenRequest.value = true
+                                        delay(1500)
+                                        responseBody = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII="
+                                        _screenRequest.value = false
+                                    } else if (path == "/audio") {
+                                        _audioRequest.value = true
+                                        delay(1500)
+                                        responseBody = "dummy_audio_base64"
+                                        _audioRequest.value = false
+                                    } else if (path == "/location") {
+                                        val loc = _childLocation.value
+                                        responseBody = if (loc != null) "${loc.first},${loc.second}" else "unknown"
+                                    }
+                                    writer.print("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ${responseBody.length}\r\n\r\n$responseBody")
+                                    writer.flush()
+                                }
+                            }
+                            client.close()
+                        } catch (e: Exception) { e.printStackTrace() }
+                    }
+                }
+            } catch (e: Exception) { e.printStackTrace() }
+        }.start()
+    }
+
+    suspend fun connectToChild(ip: String): Boolean = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        role = "PARENT"
+        try {
+            val url = URL("http://$ip:8888/ping")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.connectTimeout = 5000
+            conn.readTimeout = 5000
+            val reader = BufferedReader(InputStreamReader(conn.inputStream))
+            val response = reader.readLine()
+            if (response == "OK") {
+                childIp = ip
+                _paired.value = true
+                true
+            } else false
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
     fun setPaired(isPaired: Boolean) {
         _paired.value = isPaired
     }
@@ -81,30 +214,63 @@ object SyncRepository {
     }
 
     fun requestCameraSnapshot() {
-        _cameraRequest.value = true
+        if (role == "PARENT") {
+            _cameraRequest.value = true
+            scope.launch {
+                try {
+                    val url = URL("http://$childIp:8888/camera")
+                    val conn = url.openConnection() as HttpURLConnection
+                    val reader = BufferedReader(InputStreamReader(conn.inputStream))
+                    _cameraImageBase64.value = reader.readText()
+                } catch (e: Exception) { e.printStackTrace() }
+                _cameraRequest.value = false
+            }
+        }
     }
 
     fun completeCameraSnapshot(base64Image: String) {
         _cameraImageBase64.value = base64Image
-        _cameraRequest.value = false
+        cameraLatch?.countDown()
     }
 
     fun requestAudioClip() {
-        _audioRequest.value = true
+        if (role == "PARENT") {
+            _audioRequest.value = true
+            scope.launch {
+                try {
+                    val url = URL("http://$childIp:8888/audio")
+                    val conn = url.openConnection() as HttpURLConnection
+                    val reader = BufferedReader(InputStreamReader(conn.inputStream))
+                    _audioFileBase64.value = reader.readText()
+                } catch (e: Exception) { e.printStackTrace() }
+                _audioRequest.value = false
+            }
+        }
     }
 
     fun completeAudioClip(base64Audio: String) {
         _audioFileBase64.value = base64Audio
-        _audioRequest.value = false
+        audioLatch?.countDown()
     }
 
     fun requestScreenSnapshot() {
-        _screenRequest.value = true
+        if (role == "PARENT") {
+            _screenRequest.value = true
+            scope.launch {
+                try {
+                    val url = URL("http://$childIp:8888/screen")
+                    val conn = url.openConnection() as HttpURLConnection
+                    val reader = BufferedReader(InputStreamReader(conn.inputStream))
+                    _screenImageBase64.value = reader.readText()
+                } catch (e: Exception) { e.printStackTrace() }
+                _screenRequest.value = false
+            }
+        }
     }
 
     fun completeScreenSnapshot(base64Image: String) {
         _screenImageBase64.value = base64Image
-        _screenRequest.value = false
+        screenLatch?.countDown()
     }
 
     fun updateWifiInfo(info: String) {

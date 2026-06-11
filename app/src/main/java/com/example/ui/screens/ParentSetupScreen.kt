@@ -19,6 +19,8 @@ import androidx.compose.ui.unit.dp
 import com.example.data.SyncRepository
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -29,19 +31,37 @@ fun ParentSetupScreen(
     val context = LocalContext.current
     var manualCode by remember { mutableStateOf("") }
     
+    val coroutineScope = rememberCoroutineScope()
+    
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         if (result.contents != null) {
-            SyncRepository.setPaired(true)
-            Toast.makeText(context, "Paired successfully via QR Code!", Toast.LENGTH_SHORT).show()
-            onPaired()
+            val ip = result.contents
+            Toast.makeText(context, "Pairing with IP: $ip...", Toast.LENGTH_SHORT).show()
+            coroutineScope.launch {
+                val success = SyncRepository.connectToChild(ip)
+                if (success) {
+                    Toast.makeText(context, "Paired successfully via QR Code!", Toast.LENGTH_SHORT).show()
+                    onPaired()
+                } else {
+                    Toast.makeText(context, "Failed to connect to child device. Ensure both are on the same WiFi map.", Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
 
     fun pairWithCode() {
         if (manualCode.length == 10) {
-            SyncRepository.setPaired(true)
-            Toast.makeText(context, "Paired successfully with code!", Toast.LENGTH_SHORT).show()
-            onPaired()
+            val ip = SyncRepository.codeToIp(manualCode)
+            Toast.makeText(context, "Attempting to connect to IP $ip...", Toast.LENGTH_SHORT).show()
+            coroutineScope.launch {
+                val success = SyncRepository.connectToChild(ip)
+                if (success) {
+                    Toast.makeText(context, "Paired successfully with code!", Toast.LENGTH_SHORT).show()
+                    onPaired()
+                } else {
+                    Toast.makeText(context, "Failed to connect to child device.", Toast.LENGTH_LONG).show()
+                }
+            }
         } else {
             Toast.makeText(context, "Please enter a valid 10-digit code", Toast.LENGTH_SHORT).show()
         }

@@ -51,7 +51,7 @@ fun RoleSelectionScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(32.dp))
 
             ElevatedCard(
                 onClick = onSelectParent,

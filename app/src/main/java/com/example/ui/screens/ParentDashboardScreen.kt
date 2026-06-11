@@ -26,7 +26,8 @@ fun ParentDashboardScreen(
     onNavigateToNotifications: () -> Unit,
     onNavigateToScreenTime: () -> Unit,
     onNavigateToCameraControl: () -> Unit,
-    onNavigateToAllFeatures: () -> Unit
+    onNavigateToAllFeatures: () -> Unit,
+    onNavigateToChildSetup: () -> Unit
 ) {
     Scaffold(
         topBar = {
@@ -35,7 +36,12 @@ fun ParentDashboardScreen(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = androidx.compose.ui.graphics.Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
+                ),
+                actions = {
+                    TextButton(onClick = onNavigateToChildSetup) {
+                        Text("View Child Screen")
+                    }
+                }
             )
         }
     ) { padding ->

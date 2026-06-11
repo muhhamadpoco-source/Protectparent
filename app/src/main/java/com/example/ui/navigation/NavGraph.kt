@@ -57,7 +57,8 @@ fun AppNavigation() {
                 onNavigateToNotifications = { navController.navigate(Routes.NOTIFICATIONS_REVIEW) },
                 onNavigateToScreenTime = { navController.navigate(Routes.SCREEN_TIME_REVIEW) },
                 onNavigateToCameraControl = { navController.navigate(Routes.CAMERA_CONTROL) },
-                onNavigateToAllFeatures = { navController.navigate(Routes.ALL_FEATURES) }
+                onNavigateToAllFeatures = { navController.navigate(Routes.ALL_FEATURES) },
+                onNavigateToChildSetup = { navController.navigate(Routes.CHILD_SETUP) }
             )
         }
 
